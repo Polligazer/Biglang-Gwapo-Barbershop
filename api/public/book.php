@@ -42,6 +42,7 @@ if ($c['appt_date'] === $today && (int)substr($c['start_time'], 0, 2) * 60 + (in
 $r = resource('appointments');
 $pdo = db();
 $ref = strtoupper(bin2hex(random_bytes(4)));
+$bookingToken = bin2hex(random_bytes(32));
 $pdo->beginTransaction();
 try {
     $start = $c['start_time'];
@@ -49,7 +50,7 @@ try {
         $row = [
             'customer_name' => $c['customer_name'], 'customer_email' => $c['customer_email'], 'customer_phone' => $c['customer_phone'],
             'service_id' => $sid, 'barber_id' => $c['barber_id'], 'appt_date' => $c['appt_date'], 'start_time' => $start,
-            'status' => 'pending', 'notes' => $c['notes'], 'booking_ref' => $ref,
+            'status' => 'pending', 'notes' => $c['notes'], 'booking_ref' => $ref, 'booking_token' => $bookingToken,
         ];
         $r['before']($pdo, $row, null);   // same hours + conflict rules the admin uses
         write_row($pdo, $r, $row, null);
@@ -68,4 +69,4 @@ $st = $pdo->prepare('SELECT s.name AS service, a.start_time, a.end_time, a.appt_
     FROM appointments a JOIN services s ON s.id = a.service_id JOIN barbers b ON b.id = a.barber_id JOIN branches br ON br.id = b.branch_id
     WHERE a.booking_ref = ? ORDER BY a.start_time');
 $st->execute([$ref]);
-json_out(['ok' => true, 'ref' => $ref, 'items' => $st->fetchAll()], 201);
+json_out(['ok' => true, 'ref' => $ref, 'token' => $bookingToken, 'items' => $st->fetchAll()], 201);

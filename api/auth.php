@@ -24,7 +24,7 @@ if ($u === '' || $p === '') {
     throw new ApiError(['username' => $u === '' ? 'Required' : '', 'password' => $p === '' ? 'Required' : '']);
 }
 
-$st = db()->prepare('SELECT id, name, password_hash FROM admins WHERE username = ?');
+$st = db()->prepare('SELECT id, name, password_hash, role, branch_id FROM admins WHERE username = ?');
 $st->execute([$u]);
 $row = $st->fetch();
 // Always run one hash verification so response time doesn't reveal valid usernames.
@@ -40,5 +40,14 @@ if (!$ok) {
 }
 session_regenerate_id(true);
 unset($_SESSION['fails'], $_SESSION['lock']);
-$_SESSION['admin'] = ['id' => (int)$row['id'], 'name' => $row['name']];
+if ($row['role'] === 'branch_manager' && empty($row['branch_id'])) {
+    throw new ApiError([], 403, 'This manager account is not assigned to a branch');
+}
+$_SESSION['admin'] = [
+    'id' => (int)$row['id'],
+    'name' => $row['name'],
+    'role' => $row['role'],
+    'branch_id' => $row['branch_id'] === null ? null : (int)$row['branch_id'],
+];
+audit_log(db(), 'login', 'admins', (int)$row['id']);
 json_out(['ok' => true]);

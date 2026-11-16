@@ -9,7 +9,25 @@ function resource(string $name, bool $writable = false): array
     if (!$r || ($writable && !empty($r['ro']))) {
         throw new ApiError([], 404, 'Unknown resource');
     }
+    if ($writable && !empty($r['write_global_only'])) {
+        require_global_admin();
+    }
     return $r;
+}
+
+function scope_clause(array $r): array
+{
+    $branch = admin_branch_id();
+    if ($branch === null || empty($r['scope'])) {
+        return [null, []];
+    }
+    return match ($r['scope']) {
+        'barber_branch', 'availability_branch' => ['b.branch_id = ?', [$branch]],
+        'appointment_branch' => ['b.branch_id = ?', [$branch]],
+        'inventory_branch' => ['i.branch_id = ?', [$branch]],
+        'branch_list' => ['br.id = ?', [$branch]],
+        default => [null, []],
+    };
 }
 
 /** Paginated/filtered read, or a single row when $id is given. */
@@ -18,6 +36,14 @@ function fetch_rows(array $r, array $q = [], ?int $id = null): array
     $pdo = db();
     $where = $r['where'] ?? [];
     $p = [];
+    if (!empty($r['global_only'])) {
+        require_global_admin();
+    }
+    [$scopeWhere, $scopeParams] = scope_clause($r);
+    if ($scopeWhere !== null) {
+        $where[] = $scopeWhere;
+        $p = array_merge($p, $scopeParams);
+    }
     if ($id !== null) {
         $where[] = "{$r['pk']} = ?";
         $p[] = $id;
@@ -39,10 +65,11 @@ function fetch_rows(array $r, array $q = [], ?int $id = null): array
     }
     $w = $where ? ' WHERE ' . implode(' AND ', $where) : '';
     $order = (($q['dir'] ?? '') === 'asc' && isset($r['order_asc'])) ? $r['order_asc'] : $r['order'];
-    $limit = max(1, min(100, (int)($q['limit'] ?? 10)));
+    $all = ($q['limit'] ?? '') === 'all';
+    $limit = $all ? 0 : max(1, min(100, (int)($q['limit'] ?? 10)));
     $page = max(1, (int)($q['page'] ?? 1));
     $sql = "SELECT {$r['cols']} FROM {$r['from']}$w ORDER BY $order"
-        . ($id === null ? " LIMIT $limit OFFSET " . (($page - 1) * $limit) : '');
+        . ($id === null && !$all ? " LIMIT $limit OFFSET " . (($page - 1) * $limit) : '');
     $st = $pdo->prepare($sql);
     $st->execute($p);
     $rows = $st->fetchAll();
@@ -52,7 +79,7 @@ function fetch_rows(array $r, array $q = [], ?int $id = null): array
         $ct->execute($p);
         $total = (int)$ct->fetchColumn();
     }
-    return ['rows' => $rows, 'total' => $total, 'page' => $page, 'limit' => $limit];
+    return ['rows' => $rows, 'total' => $total, 'page' => $page, 'limit' => $all ? 'all' : $limit];
 }
 
 /** INSERT (id null) or UPDATE one row from already-validated columns; returns the row id. */
@@ -79,6 +106,9 @@ function write_row(PDO $pdo, array $r, array $c, ?int $id): int
 function save(string $name, array $in, ?int $id): array
 {
     $r = resource($name, true);
+    if (!empty($r['global_only'])) {
+        require_global_admin();
+    }
     $pdo = db();
     $c = validate($r['fields'], $in, $id === null);
 
@@ -99,6 +129,11 @@ function save(string $name, array $in, ?int $id): array
             if (!$s->fetchColumn()) {
                 throw new ApiError([], 404, 'Record not found');
             }
+            if (admin_branch_id() !== null && !empty($r['scope'])) {
+                if (!fetch_rows($r, [], $id)['rows']) {
+                    throw new ApiError([], 403, 'You cannot modify records outside your assigned branch');
+                }
+            }
         }
         if (isset($r['before'])) {
             $r['before']($pdo, $c, $id);
@@ -108,6 +143,7 @@ function save(string $name, array $in, ?int $id): array
         if (isset($r['after'])) {
             $r['after']($pdo, $id, $c, $creating);
         }
+        audit_log($pdo, $creating ? 'create' : 'update', $name, $id, ['fields' => array_keys($c)]);
         $pdo->commit();
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
@@ -121,9 +157,41 @@ function save(string $name, array $in, ?int $id): array
 function remove(string $name, int $id): void
 {
     $r = resource($name, true);
-    $st = db()->prepare("DELETE FROM {$r['table']} WHERE id = ?");
-    $st->execute([$id]);
-    if ($st->rowCount() === 0) {
-        throw new ApiError([], 404, 'Record not found');
+    if (!empty($r['global_only'])) {
+        require_global_admin();
+    }
+    if ($name === 'admins') {
+        if ((int)($_SESSION['admin']['id'] ?? 0) === $id) {
+            throw new ApiError([], 409, 'You cannot remove your own admin account');
+        }
+        $count = (int)db()->query("SELECT COUNT(*) FROM admins WHERE role = 'global_admin'")->fetchColumn();
+        $role = db()->prepare('SELECT role FROM admins WHERE id = ?');
+        $role->execute([$id]);
+        if ($role->fetchColumn() === 'global_admin' && $count <= 1) {
+            throw new ApiError([], 409, 'At least one global admin account must remain');
+        }
+    }
+    if (admin_branch_id() !== null && !empty($r['scope']) && !fetch_rows($r, [], $id)['rows']) {
+        throw new ApiError([], 403, 'You cannot modify records outside your assigned branch');
+    }
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        if (!empty($r['soft_delete'])) {
+            $st = $pdo->prepare("UPDATE {$r['table']} SET active = 0 WHERE id = ?");
+        } else {
+            $st = $pdo->prepare("DELETE FROM {$r['table']} WHERE id = ?");
+        }
+        $st->execute([$id]);
+        if ($st->rowCount() === 0) {
+            throw new ApiError([], 404, 'Record not found');
+        }
+        audit_log($pdo, !empty($r['soft_delete']) ? 'deactivate' : 'delete', $name, $id);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
     }
 }

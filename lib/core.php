@@ -27,6 +27,20 @@ function json_out(array $data, int $code = 200): never
     exit;
 }
 
+function audit_log(PDO $pdo, string $action, string $resource, ?int $recordId, array $details = []): void
+{
+    $json = json_encode($details, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $pdo->prepare('INSERT INTO audit_logs (admin_id, action, resource, record_id, details, ip_address) VALUES (?, ?, ?, ?, ?, ?)')
+        ->execute([
+            isset($_SESSION['admin']['id']) ? (int)$_SESSION['admin']['id'] : null,
+            $action,
+            $resource,
+            $recordId,
+            $json,
+            $_SERVER['REMOTE_ADDR'] ?? null,
+        ]);
+}
+
 function csrf_token(): string
 {
     start_session();
@@ -72,6 +86,21 @@ function api_boot(bool $write = false, bool $auth = true): void
     start_session();
     if ($auth && empty($_SESSION['admin'])) {
         throw new ApiError([], 401, 'Authentication required');
+    }
+
+    function admin_branch_id(): ?int
+    {
+        if (empty($_SESSION['admin']) || ($_SESSION['admin']['role'] ?? 'global_admin') === 'global_admin') {
+            return null;
+        }
+        return isset($_SESSION['admin']['branch_id']) ? (int)$_SESSION['admin']['branch_id'] : null;
+    }
+
+    function require_global_admin(): void
+    {
+        if (empty($_SESSION['admin']) || ($_SESSION['admin']['role'] ?? '') !== 'global_admin') {
+            throw new ApiError([], 403, 'Global admin access required');
+        }
     }
     if ($write) {
         require_write_request();

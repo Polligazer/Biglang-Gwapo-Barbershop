@@ -19,7 +19,6 @@ INSERT INTO branches (name, address, phone) VALUES
 ALTER TABLE barbers ADD COLUMN branch_id INT UNSIGNED NULL AFTER name;
 UPDATE barbers SET branch_id = 1;
 UPDATE barbers SET branch_id = 2 WHERE id = 3;
-UPDATE barbers SET branch_id = 3 WHERE id = 4;
 ALTER TABLE barbers
   MODIFY branch_id INT UNSIGNED NOT NULL,
   DROP INDEX chair,
@@ -29,4 +28,8 @@ ALTER TABLE barbers
 -- Chair numbers are now per-branch (the old index forced them to be unique across all branches).
 UPDATE barbers SET chair = 1 WHERE id IN (3, 4);
 
-ALTER TABLE appointments ADD COLUMN booking_ref CHAR(8) NULL AFTER notes, ADD KEY idx_ref (booking_ref);
+ALTER TABLE appointments
+  ADD COLUMN booking_ref CHAR(8) NULL AFTER notes,
+  ADD COLUMN booking_token CHAR(64) NULL AFTER booking_ref,
+  ADD KEY idx_ref (booking_ref),
+  ADD KEY idx_booking_token (booking_token);

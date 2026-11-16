@@ -14,16 +14,24 @@ Auth is enforced in exactly two places in `lib/core.php`: `require_admin_page()`
 Public endpoints use `public_boot()`, which never checks a login (public reads don't even start a session).
 
 ## Setup
-1. Fresh install: `mysql -u root -p < schema.sql`.
-   Upgrading the first version: `mysql -u root -p < migrate_public.sql` (run once; adds branches, barbers.branch_id, booking_ref).
+1. Fresh install: `mysql -u root -p < schema.sql`. The complete schema includes branches,
+   staff roles, booking tokens, audit logs, availability, inventory ledgers, and reorder
+   requests; the migration files are retained only as historical upgrade references.
 2. Set DB credentials via env vars `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASS` (or edit `db.php`). Use a dedicated MySQL user.
 3. Create your admin: `php seed_admin.php admin "a-long-password" "Your Name"`
-4. Serve: `php -S localhost:8000` from this folder. Public site: `/`. Admin: `/admin/login.php`.
-5. Replace the sample branch addresses/phones in the `branches` table with your real ones.
+4. For an existing pre-consolidation database, apply the migration files in dependency order
+   instead of rerunning `schema.sql`; `schema.sql` is intended for a fresh database.
+5. Serve: `php -S localhost:8000` from this folder. Public site: `/`. Admin: `/admin/login.php`.
+6. Replace the sample branch addresses/phones in the `branches` table with your real ones.
 
 ## Booking flow
 Barber (by branch) → services (multi-select, scheduled back-to-back) → date & open time → name/phone → request saved as `pending` with a reference code.
+Customers can use the reference, phone number, and private token to reschedule the full booking (branch, barber, services, date, and time) or cancel it. Rescheduling is available for pending/confirmed bookings until 20 minutes before the appointment and preserves the current status.
 Admins confirm or edit it under Appointments. The same hour/overlap rules apply as in the admin, inside one transaction (all services book, or none).
+Payment is collected in-store; online bookings do not require a deposit. Arriving 15 minutes late may result in the appointment time being forfeited.
+
+## Staff access
+Global admins can add or deactivate barbers, assign them to branches, create unavailable date/time ranges, and create branch-manager accounts. A branch manager can manage appointments, barbers, and inventory only for the assigned branch. Deactivating a barber preserves appointment history and removes the barber from new public bookings.
 Abuse controls: CSRF token, hidden honeypot field, 5 requests/hour per session, 30-minute lead time, 60-day window.
 
 ## Layout

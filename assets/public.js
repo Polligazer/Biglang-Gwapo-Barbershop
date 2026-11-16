@@ -2,7 +2,7 @@
 /* Public site: browsing + booking. Talks only to api/public/* (no login). */
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const money = n => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+const money = n => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const t12 = t => { const [h, m] = t.split(':'); return `${(+h % 12) || 12}:${m} ${+h < 12 ? 'AM' : 'PM'}`; };
 const CSRF = $('meta[name=csrf]')?.content || '';
 const store = {
@@ -139,6 +139,8 @@ pages.book = async function () {
       const d = S.done;
       root.innerHTML = `<div class="bg-white rounded-lg shadow-sm border-t-4 border-navy p-6"><p class="text-[10px] font-bold uppercase tracking-widest text-rust">Request received</p>
         <h2 class="font-serif text-3xl mt-1">Thank you, ${esc(S.details.customer_name)}.</h2><p class="mt-2 text-sm">Reference <b class="font-mono text-lg">${esc(d.ref)}</b>. Your booking is <b>pending</b> until the atelier confirms it${S.details.customer_email ? ' — we will email you' : ''} or call you.</p>
+        <p class="mt-3 text-sm bg-sand rounded p-3">Save this private cancellation token: <b class="font-mono break-all">${esc(d.token)}</b>. You need it with your reference and phone number to reschedule or cancel this booking.</p>
+        <p class="mt-3 text-sm text-rust"><b>Payment:</b> Pay in-store after your service. Arriving 15 minutes late may result in your appointment time being forfeited.</p>
         <ul class="mt-4 text-sm space-y-1">${d.items.map(i => `<li>${t12(i.start_time.slice(0, 5))} – ${t12(i.end_time.slice(0, 5))} · ${esc(i.service)} with ${esc(i.barber)}</li>`).join('')}</ul>
         <p class="text-sm text-ink/70 mt-3">${esc(d.items[0]?.branch || '')}</p>
         <div class="mt-6 flex gap-3"><a href="index.php" class="${btnP}">Back to home</a><a href="book.php" class="text-sm font-semibold px-4 py-3">Book another</a></div></div>`;

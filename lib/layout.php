@@ -28,6 +28,7 @@ function page_head(string $title, string $active): void
         <a href="<?= $href ?>" class="px-3 py-2 rounded <?= $k === $active ? 'bg-white/15' : 'hover:bg-white/10' ?>"><?= $label ?></a>
       <?php endforeach; ?>
       <a href="book.php" class="ml-2 bg-coral text-white px-4 py-2 rounded font-bold uppercase tracking-wider text-xs hover:opacity-90">Book Now</a>
+      <a href="booking-status.php" class="ml-3 text-[11px] text-white/60 hover:text-white">Manage Booking</a>
       <a href="admin/login.php" class="ml-3 text-[11px] text-white/60 hover:text-white border border-white/25 rounded px-2 py-1">Admin Login</a>
     </nav>
     <button data-menu class="md:hidden px-3 py-2 rounded bg-white/10 text-sm font-semibold" aria-label="Menu" aria-controls="mnav">Menu</button>
@@ -35,6 +36,7 @@ function page_head(string $title, string $active): void
   <nav id="mnav" class="hidden md:hidden px-4 pb-4 flex flex-col gap-1 text-sm font-semibold">
     <?php foreach ($links as [$href, $label]): ?><a href="<?= $href ?>" class="px-3 py-2 rounded hover:bg-white/10"><?= $label ?></a><?php endforeach; ?>
     <a href="book.php" class="bg-coral text-center px-4 py-2 rounded font-bold uppercase tracking-wider text-xs">Book Now</a>
+    <a href="booking-status.php" class="text-[11px] text-white/60 px-3 py-2">Manage Booking</a>
     <a href="admin/login.php" class="text-[11px] text-white/60 px-3 py-2">Admin Login</a>
   </nav>
 </header>
@@ -49,7 +51,7 @@ function page_foot(): void
   <div class="max-w-6xl mx-auto px-4 sm:px-6 py-10 grid sm:grid-cols-3 gap-8 text-sm">
     <div><p class="font-serif text-xl text-sand">Biglang Gwapo Barbershop</p><p class="mt-2 text-sand3/80">Refined craft, bespoke barbering, and modern grooming rituals.</p></div>
     <div><p class="text-[10px] font-bold tracking-widest uppercase text-coral mb-2">Explore</p>
-      <a class="block hover:text-white" href="services.php">Services &amp; Products</a><a class="block hover:text-white" href="branches.php">About &amp; Branches</a><a class="block hover:text-white" href="book.php">Book an appointment</a></div>
+      <a class="block hover:text-white" href="services.php">Services &amp; Products</a><a class="block hover:text-white" href="branches.php">About &amp; Branches</a><a class="block hover:text-white" href="book.php">Book an appointment</a><a class="block hover:text-white" href="booking-status.php">Manage booking</a></div>
     <div><p class="text-[10px] font-bold tracking-widest uppercase text-coral mb-2">Hours</p><p>Daily 9:00 AM – 6:00 PM</p><a href="admin/login.php" class="inline-block mt-3 text-xs text-sand3/60 hover:text-white">Admin Login</a></div>
   </div>
 </footer>

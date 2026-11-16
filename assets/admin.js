@@ -3,7 +3,7 @@
 const CSRF = document.querySelector('meta[name=csrf]').content;
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const money = n => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money = n => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const t12 = t => { const [h, m] = t.split(':'); return `${(+h % 12) || 12}:${m} ${+h < 12 ? 'AM' : 'PM'}`; };
 const fmtDate = d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 const LIMIT = 10;
@@ -90,8 +90,14 @@ function showErrors(form, errs) {
 
 /* ---------- Resource configs ---------- */
 const S = {
-  view: '', barbers: [], services: [], dirty: true,
-  lists: { appointments: blank(), services: blank(), inventory: blank() },
+  view: '', barbers: [], services: [], branches: [], dirty: true,
+  lists: {
+    barbers: blank(), availability: blank(), admins: blank(),
+    appointments: blank(), services: blank(), inventory: blank(),
+  },
+  calendar: { date: new Date(), rows: [] },
+  audit: { rows: [], total: 0, page: 1, limit: 25 },
+  pendingAdd: false,
 };
 function blank() { return { rows: [], total: 0, page: 1, q: '', status: '', date: '', category: '' }; }
 const badge = (txt, cls) => `<span class="inline-block px-2.5 py-1 rounded-sm text-[10px] font-bold uppercase tracking-wider ${cls}">${esc(txt)}</span>`;
@@ -101,6 +107,61 @@ const cell = (a, b) => `<div class="font-semibold">${esc(a)}</div><div class="te
 const opts = list => () => list.map(x => ({ v: x, l: x }));
 
 const R = {
+  barbers: {
+    label: 'Barber', eyebrow: 'Staff registry', title: 'Barbers',
+    sub: 'Add, deactivate, and assign barbers to branches.',
+    filters: [],
+    cols: [
+      ['Barber', r => cell(r.name, r.title || 'Barber')],
+      ['Branch', r => esc(r.branch)],
+      ['Chair', r => r.chair],
+      ['Status', r => +r.active ? badge('Active', 'bg-navy/10 text-navy') : badge('Unavailable', 'bg-sand3 text-ink/70')],
+    ],
+    fields: () => [
+      { name: 'name', label: 'Barber name', type: 'text', req: 1, max: 100 },
+      { name: 'branch_id', label: 'Branch', type: 'select', req: 1, opts: () => S.branches.map(b => ({ v: b.id, l: b.name })) },
+      { name: 'chair', label: 'Chair', type: 'number', req: 1, min: 1, max: 255 },
+      { name: 'title', label: 'Title', type: 'text', max: 60 },
+      { name: 'active', label: 'Status', type: 'toggle', def: 1, hint: 'Bookable by clients' },
+    ],
+  },
+  availability: {
+    label: 'Unavailable period', eyebrow: 'Barber availability', title: 'Unavailable Dates',
+    sub: 'Block a barber for a whole day or a specific time range.',
+    filters: [],
+    cols: [
+      ['Barber', r => cell(r.barber_name, r.branch)],
+      ['Dates', r => `${fmtDate(r.start_date)} – ${fmtDate(r.end_date)}`],
+      ['Time', r => r.start_time ? `${t12(r.start_time)} – ${t12(r.end_time)}` : 'All day'],
+      ['Reason', r => esc(r.reason || '')],
+    ],
+    prep: r => ({ ...r, start_time: r.start_time ? r.start_time.slice(0, 5) : '', end_time: r.end_time ? r.end_time.slice(0, 5) : '' }),
+    fields: () => [
+      { name: 'barber_id', label: 'Barber', type: 'select', req: 1, opts: () => S.barbers.filter(b => +b.active).map(b => ({ v: b.id, l: `${b.name} — ${b.branch}` })) },
+      { name: 'start_date', label: 'Start date', type: 'date', req: 1 },
+      { name: 'end_date', label: 'End date', type: 'date', req: 1 },
+      { name: 'start_time', label: 'Start time (optional)', type: 'time' },
+      { name: 'end_time', label: 'End time (optional)', type: 'time' },
+      { name: 'reason', label: 'Reason', type: 'text', max: 255, span: 2 },
+    ],
+  },
+  admins: {
+    label: 'Admin user', eyebrow: 'Access control', title: 'Admin Users',
+    sub: 'Create global administrators and branch managers.',
+    filters: [],
+    cols: [
+      ['Username', r => cell(r.username, r.name)],
+      ['Role', r => r.role === 'global_admin' ? badge('Global admin', 'bg-navy text-white') : badge('Branch manager', 'bg-coral/20 text-rust')],
+      ['Branch', r => esc(r.branch || 'All branches')],
+    ],
+    fields: editing => [
+      { name: 'username', label: 'Username', type: 'text', req: 1, max: 50 },
+      { name: 'name', label: 'Display name', type: 'text', req: 1, max: 100 },
+      { name: 'role', label: 'Role', type: 'select', req: 1, opts: () => [{ v: 'global_admin', l: 'Global admin' }, { v: 'branch_manager', l: 'Branch manager' }] },
+      { name: 'branch_id', label: 'Assigned branch', type: 'select', opts: () => [{ v: '', l: 'All branches / none' }, ...S.branches.map(b => ({ v: b.id, l: b.name }))] },
+      { name: 'password', label: editing ? 'New password (optional)' : 'Password', type: 'password', req: !editing, max: 200 },
+    ],
+  },
   appointments: {
     label: 'Appointment', eyebrow: 'Atelier floor registry', title: 'Appointments',
     sub: 'Book, reschedule, and track every client visit.',
@@ -144,7 +205,7 @@ const R = {
       { name: 'name', label: 'Service name', type: 'text', req: 1, max: 120, span: 2 },
       { name: 'description', label: 'Description', type: 'textarea', max: 1000, span: 2 },
       { name: 'duration_min', label: 'Duration (min)', type: 'number', req: 1, min: 15, max: 240, def: 45 },
-      { name: 'price', label: 'Price (USD)', type: 'number', req: 1, min: 0, max: 9999, dec: 1 },
+      { name: 'price', label: 'Price (PHP)', type: 'number', req: 1, min: 0, max: 9999, dec: 1 },
       { name: 'category', label: 'Category', type: 'select', req: 1, opts: opts(['Haircut', 'Beard & Shave', 'Facial & Care', 'Packages']) },
       { name: 'active', label: 'Visibility', type: 'toggle', def: 1, hint: 'Bookable by clients' },
     ],
@@ -156,16 +217,18 @@ const R = {
     filters: [{ name: 'category', type: 'select', opts: [['', 'All categories'], ...['Styling', 'Shave', 'Beard', 'Skincare', 'Tools', 'Consumables'].map(c => [c, c])] }],
     cols: [
       ['Product', r => cell(r.name, r.sku)],
+      ['Branch', r => esc(S.branches.find(b => +b.id === +r.branch_id)?.name || '')],
       ['Category', r => esc(r.category)],
       ['Price', r => money(r.price)],
       ['On hand', r => `<span class="font-serif text-lg mr-2">${r.stock}</span>${stockBadge(r)}`],
       ['Min', r => r.min_threshold],
     ],
     fields: editing => [
+      { name: 'branch_id', label: 'Branch', type: 'select', req: 1, opts: () => S.branches.map(b => ({ v: b.id, l: b.name })) },
       { name: 'name', label: 'Product name', type: 'text', req: 1, max: 150, span: 2 },
       { name: 'sku', label: 'SKU', type: 'text', req: 1, max: 32 },
       { name: 'category', label: 'Category', type: 'select', req: 1, opts: opts(['Styling', 'Shave', 'Beard', 'Skincare', 'Tools', 'Consumables']) },
-      { name: 'price', label: 'Price (USD)', type: 'number', req: 1, min: 0, max: 9999, dec: 1 },
+      { name: 'price', label: 'Price (PHP)', type: 'number', req: 1, min: 0, max: 9999, dec: 1 },
       { name: 'min_threshold', label: 'Low-stock threshold', type: 'number', req: 1, min: 0, max: 100000, def: 5 },
       ...(editing ? [] : [{ name: 'stock', label: 'Opening stock', type: 'number', req: 1, min: 0, max: 100000, def: 0 }]),
     ],
@@ -217,13 +280,14 @@ function openForm(key, row) {
 
 function confirmDelete(key, row) {
   const cfg = R[key], name = row.customer_name || row.name;
-  openModal('Confirm', `Delete ${cfg.label.toLowerCase()}?`, `<p class="text-sm mb-6">This permanently removes <strong>${esc(name)}</strong>. This cannot be undone.</p>
+  const action = cfg.soft_delete ? 'Deactivate' : 'Delete';
+  openModal('Confirm', `${action} ${cfg.label.toLowerCase()}?`, `<p class="text-sm mb-6">This ${cfg.soft_delete ? 'makes' : 'permanently removes'} <strong>${esc(name)}</strong> ${cfg.soft_delete ? 'unavailable for new bookings while preserving history.' : 'and cannot be undone.'}</p>
     <p data-formerr class="text-sm text-rust min-h-[1.25rem]"></p>
     <div class="flex justify-end gap-2"><button data-close class="${btnG}">Cancel</button><button data-confirm class="${btnP} !bg-rust">Delete</button></div>`);
   $('[data-confirm]').onclick = async e => {
     e.target.disabled = true;
-    try { await removeRow(key, row.id); closeModal(); toast('Deleted'); }
-    catch (err) { $('[data-formerr]').textContent = err.error || 'Delete failed'; e.target.disabled = false; }
+    try { await removeRow(key, row.id); closeModal(); toast(cfg.soft_delete ? 'Deactivated' : 'Deleted'); }
+    catch (err) { $('[data-formerr]').textContent = err.error || `${action} failed`; e.target.disabled = false; }
   };
 }
 
@@ -335,11 +399,144 @@ async function renderDashboard() {
           : '<p class="text-sm text-ink/60">All stock levels healthy.</p>'}</section></div>`;
 }
 
+/* ---------- Calendar ---------- */
+function calendarMonthLabel(date) {
+  return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+function calendarDateKey(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-');
+}
+
+async function renderCalendar() {
+  S.view = 'calendar';
+  const date = S.calendar.date;
+  $('#main').innerHTML = `<div class="flex flex-wrap items-end justify-between gap-4 mb-6">
+    <div><p class="text-[10px] font-bold tracking-widest uppercase text-rust">Studio schedule</p>
+      <h1 class="font-serif text-4xl">Calendar</h1><p class="text-sm text-ink/70 mt-1">See every appointment across the month at a glance.</p></div>
+    <button data-action="goto" data-view="appointments" data-add="1" class="${btnP}">+ Add appointment</button>
+  </div>
+  <section class="bg-white rounded-lg shadow-sm overflow-hidden">
+    <div class="flex items-center justify-between gap-3 p-4 border-b border-sand3/60">
+      <div class="flex items-center gap-2">
+        <button data-action="calendar-prev" class="${ICON_BTN}" aria-label="Previous month">←</button>
+        <button data-action="calendar-today" class="${ICON_BTN}">Today</button>
+        <button data-action="calendar-next" class="${ICON_BTN}" aria-label="Next month">→</button>
+      </div>
+      <h2 class="font-serif text-2xl">${calendarMonthLabel(date)}</h2>
+      <span data-calendar-count class="text-xs text-ink/60">${S.calendar.rows.length} appointment${S.calendar.rows.length === 1 ? '' : 's'}</span>
+    </div>
+    <div data-calendar class="p-3"></div>
+  </section>`;
+  try {
+    const data = await api('calendar.php', { params: { year: date.getFullYear(), month: date.getMonth() + 1 } });
+    S.calendar.rows = data.rows;
+    if (S.view === 'calendar') {
+      renderCalendarGrid(data);
+      $('[data-calendar-count]').textContent = `${data.rows.length} appointment${data.rows.length === 1 ? '' : 's'}`;
+    }
+  } catch (e) {
+    toast(e.error || 'Could not load calendar', true);
+  }
+}
+
+function renderCalendarGrid(data) {
+  const first = new Date(data.start + 'T00:00:00');
+  const rowsByDate = data.rows.reduce((groups, row) => {
+    (groups[row.appt_date] ||= []).push(row);
+    return groups;
+  }, {});
+  const headings = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  let html = `<div class="grid grid-cols-7 border-l border-t border-sand3/60">
+    ${headings.map(day => `<div class="p-2 text-[10px] font-bold uppercase tracking-widest text-ink/60 border-r border-b border-sand3/60">${day}</div>`).join('')}`;
+  for (let i = 0; i < 42; i++) {
+    const day = new Date(first);
+    day.setDate(first.getDate() + i);
+    const key = calendarDateKey(day), outside = day.getMonth() !== S.calendar.date.getMonth();
+    const events = rowsByDate[key] || [];
+    html += `<div class="min-h-28 p-2 border-r border-b border-sand3/60 ${outside ? 'bg-sand/40 text-ink/40' : ''}">
+      <div class="text-xs font-bold mb-1">${day.getDate()}</div>
+      <div class="space-y-1">${events.map(row => `<button data-action="calendar-event" data-id="${row.id}" class="w-full text-left rounded px-2 py-1 text-[10px] leading-tight ${STATUS[row.status] || 'bg-sand3 text-ink'}">
+        <span class="font-bold">${esc(t12(row.start_time))}</span> ${esc(row.customer_name)}<br><span class="opacity-80">${esc(row.barber_name)}</span>
+      </button>`).join('')}</div>
+    </div>`;
+  }
+  $('[data-calendar]').innerHTML = html + '</div>';
+}
+
+/* ---------- Audit log ---------- */
+function auditDate(value) {
+  const date = new Date(String(value).replace(' ', 'T'));
+  return Number.isNaN(date.getTime()) ? String(value || '') : date.toLocaleString('en-PH');
+}
+
+function auditDetails(value) {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    return JSON.stringify(parsed);
+  } catch {
+    return String(value || '');
+  }
+}
+
+async function renderAudit() {
+  S.view = 'audit';
+  const A = S.audit;
+  $('#main').innerHTML = `<div class="mb-6">
+    <p class="text-[10px] font-bold tracking-widest uppercase text-rust">Security &amp; accountability</p>
+    <h1 class="font-serif text-4xl">Audit Log</h1>
+    <p class="text-sm text-ink/70 mt-1">Review administrative actions and system activity.</p>
+  </div>
+  <div class="bg-white rounded-lg shadow-sm overflow-x-auto">
+    <table class="w-full text-sm"><thead class="bg-sand text-[10px] uppercase tracking-widest text-ink/70"><tr>
+      <th class="text-left font-bold px-4 py-3">When</th><th class="text-left font-bold px-4 py-3">Admin</th>
+      <th class="text-left font-bold px-4 py-3">Action</th><th class="text-left font-bold px-4 py-3">Resource</th>
+      <th class="text-left font-bold px-4 py-3">Details</th></tr></thead>
+      <tbody data-audit-rows></tbody>
+    </table>
+  </div>
+  <div data-audit-pager class="flex items-center justify-between mt-4 text-sm"></div>`;
+  await loadAudit();
+}
+
+async function loadAudit() {
+  try {
+    const data = await api('audit.php', { params: { page: S.audit.page } });
+    S.audit.rows = data.rows; S.audit.total = data.total; S.audit.page = data.page;
+    if (S.view !== 'audit') return;
+    const A = S.audit;
+    $('[data-audit-rows]').innerHTML = A.rows.length
+      ? A.rows.map(row => `<tr class="border-t border-sand3/60 align-top">
+          <td class="px-4 py-3 whitespace-nowrap">${esc(auditDate(row.created_at))}</td>
+          <td class="px-4 py-3">${esc(row.admin_name)}</td>
+          <td class="px-4 py-3">${badge(row.action, 'bg-navy/10 text-navy')}</td>
+          <td class="px-4 py-3">${esc(row.resource)}${row.record_id ? ` <span class="text-xs text-ink/60">#${esc(row.record_id)}</span>` : ''}</td>
+          <td class="px-4 py-3 max-w-md break-words text-xs text-ink/70">${esc(auditDetails(row.details))}</td>
+        </tr>`).join('')
+      : '<tr><td colspan="5" class="px-4 py-10 text-center text-ink/60">No audit entries yet.</td></tr>';
+    const pages = Math.max(1, Math.ceil(A.total / A.limit));
+    $('[data-audit-pager]').innerHTML = `<span class="text-ink/70">${A.total} entr${A.total === 1 ? 'y' : 'ies'}</span>
+      <div class="flex items-center gap-2"><button data-action="audit-page" data-dir="-1" ${A.page <= 1 ? 'disabled' : ''} class="${ICON_BTN} disabled:opacity-40">Previous</button>
+      <span>Page ${A.page} of ${pages}</span><button data-action="audit-page" data-dir="1" ${A.page >= pages ? 'disabled' : ''} class="${ICON_BTN} disabled:opacity-40">Next</button></div>`;
+  } catch (e) {
+    toast(e.error || 'Could not load audit log', true);
+  }
+}
+
 /* ---------- Router & events ---------- */
 async function route() {
   const key = (location.hash || '#dashboard').slice(1);
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === key));
-  if (R[key]) { S.view = key; renderShell(key); renderRows(key); await loadList(key); }
+  if (key === 'calendar') await renderCalendar();
+  else if (key === 'audit') await renderAudit();
+  else if (R[key]) {
+    S.view = key; renderShell(key); renderRows(key); await loadList(key);
+    if (key === 'appointments' && S.pendingAdd) { S.pendingAdd = false; openForm(key); }
+  }
   else renderDashboard();
 }
 document.addEventListener('click', async e => {
@@ -347,13 +544,31 @@ document.addEventListener('click', async e => {
   const b = e.target.closest('[data-action]'); if (!b) return;
   const act = b.dataset.action, host = b.closest('[data-key]'), key = host?.dataset.key || S.view;
   const row = host && S.lists[key]?.rows.find(r => r.id === +host.dataset.id);
-  if (act === 'add') openForm(key);
+  if (act === 'calendar-prev' || act === 'calendar-next' || act === 'calendar-today') {
+    if (act === 'calendar-today') S.calendar.date = new Date();
+    else S.calendar.date = new Date(S.calendar.date.getFullYear(), S.calendar.date.getMonth() + (act === 'calendar-next' ? 1 : -1), 1);
+    renderCalendar();
+  } else if (act === 'calendar-event') {
+    const event = S.calendar.rows.find(r => r.id === +b.dataset.id);
+    if (event) {
+      S.lists.appointments.date = event.appt_date;
+      location.hash = 'appointments';
+    }
+  } else if (act === 'audit-page') {
+    S.audit.page += +b.dataset.dir;
+    loadAudit();
+  } else if (act === 'add') openForm(key);
   else if (act === 'edit' && row) openForm(key, row);
   else if (act === 'delete' && row) confirmDelete(key, row);
   else if (act === 'adjust' && row) openAdjust(row);
+  else if (act === 'request-reorder' && row) openReorder(row);
   else if (act === 'reorder') openAdjust(JSON.parse(b.dataset.item), 'receive');
   else if (act === 'page') { S.lists[key].page += +b.dataset.dir; loadList(key); }
-  else if (act === 'goto') { S.lists[b.dataset.view].status = b.dataset.status || ''; location.hash = b.dataset.view; }
+  else if (act === 'goto') {
+    S.lists[b.dataset.view].status = b.dataset.status || '';
+    S.pendingAdd = b.dataset.add === '1';
+    location.hash = b.dataset.view;
+  }
   else if (act === 'logout') { try { await api('auth.php', { method: 'POST', body: { action: 'logout' } }); } finally { location.href = 'login.php'; } }
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
@@ -367,8 +582,13 @@ window.addEventListener('hashchange', route);
 
 (async function boot() {
   try {
-    const [b, s] = await Promise.all([api('read.php', { params: { r: 'barbers', limit: 100 } }), api('read.php', { params: { r: 'services', limit: 100 } })]);
+    const [b, s, branches] = await Promise.all([
+      api('read.php', { params: { r: 'barbers', limit: 100 } }),
+      api('read.php', { params: { r: 'services', limit: 100 } }),
+      api('read.php', { params: { r: 'branches', limit: 100 } }),
+    ]);
     S.barbers = b.rows; S.services = s.rows;
+    S.branches = branches.rows;
   } catch (e) { toast(e.error || 'Could not load lookups', true); }
   route();
 })();
