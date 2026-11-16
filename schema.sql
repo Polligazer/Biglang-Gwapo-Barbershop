@@ -83,16 +83,14 @@ CREATE TABLE stock_ledger (
   CONSTRAINT fk_ledger_inv FOREIGN KEY (inventory_id) REFERENCES inventory(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- Sample data (admin user is created with: php seed_admin.php <user> <password> "<Name>")
--- Sample branches: replace the addresses with your real ones.
 INSERT INTO branches (name, address, phone) VALUES
- ('Boston Back Bay','428 Commonwealth Ave, Boston, MA','(617) 555-0142'),
- ('Cambridge Harvard Sq','12 Brattle St, Cambridge, MA','(617) 555-0177'),
- ('Seaport District','88 Seaport Blvd, Boston, MA','(617) 555-0199');
+ ('Bocaue City Mall','Bocaue, 3018 Bulacan','+63 976-1821505'),
+ ('Esperanza Mall','Esperanza, 2/F MacArthur Hwy, Meycauayan, 3020 Bulacan','+63 943-1826494'),
+ ('SM City Marilao','3019 MacArthur Hwy, Marilao, Bulacan','+63 956-7251923');
 
 INSERT INTO barbers (name, branch_id, chair, title) VALUES
- ('Marcus Volkov',1,1,'Master Barber'),('Julian Kessler',1,2,'Senior Stylist'),
- ('Derrick Park',2,1,'Barber Craft'),('Elena Rossi',3,1,'Texture Specialist');
+ ('Adrian Novenario',1,1,'Master Barber'),('Sam Arias',1,2,'Barber Stylist'),
+ ('Auvreen Aguirre',2,1,'Barber Stylist');
 
 INSERT INTO services (name, description, duration_min, price, category) VALUES
  ('Royal Signature Cut','Consultation, precision cut and finish.',45,55.00,'Haircut'),
@@ -103,7 +101,7 @@ INSERT INTO services (name, description, duration_min, price, category) VALUES
  ('Father & Son Heritage Session','Two cuts back-to-back with tonic finish.',90,110.00,'Packages');
 
 INSERT INTO inventory (sku, name, category, price, stock, min_threshold) VALUES
- ('SKU-AP-0104','Sovereign Matte Clay Pomade (100ml)','Styling',28.00,3,12),
+ ('SKU-AP-0104','BG Matte Clay Pomade (100ml)','Styling',28.00,3,12),
  ('SKU-AP-0107','Sandalwood Shave Cream','Shave',22.00,2,8),
  ('SKU-AP-0110','Japanese Carbon Steel Blades (100pk)','Tools',22.00,41,10),
  ('SKU-AP-0112','Cedar Beard Oil (30ml)','Beard',26.00,24,10);
